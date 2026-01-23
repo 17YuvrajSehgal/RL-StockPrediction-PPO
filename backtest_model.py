@@ -171,6 +171,16 @@ Examples:
         action='store_true',
         help='Skip chart generation (faster)'
     )
+    parser.add_argument(
+        '--debug',
+        action='store_true',
+        help='Enable detailed step-by-step logging for debugging'
+    )
+    parser.add_argument(
+        '--no-margin',
+        action='store_true',
+        help='Disable margin constraint enforcement (for comparison)'
+    )
     
     args = parser.parse_args()
     
@@ -218,6 +228,8 @@ Examples:
             config=config,
             initial_capital=args.initial_capital,
             transaction_cost=args.transaction_cost,
+            debug=args.debug,
+            enforce_margin=not args.no_margin,
         )
         
         # Run backtest

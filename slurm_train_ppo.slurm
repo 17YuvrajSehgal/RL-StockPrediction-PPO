@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=ppo_stock_trading      # Job name
-#SBATCH --account=def-naser2             # Replace with your account
-#SBATCH --time=00:30:00                    # Time limit (24 hours)
+#SBATCH --account=def-naser2
+#SBATCH --time=00:30:00                    # Time limit
 #SBATCH --nodes=1                          # Number of nodes
 #SBATCH --ntasks=1                         # Number of tasks
 #SBATCH --cpus-per-task=8                  # CPU cores per task

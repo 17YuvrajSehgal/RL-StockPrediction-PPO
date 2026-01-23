@@ -22,7 +22,124 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 
 from swing_trading import SwingTradingEnv, SwingTradingConfig
+from swing_trading.margin import MarginModel
+from swing_trading.config import MarginConfig
 from trading_system.evaluation.metrics import FinancialMetrics
+
+
+class BacktestLogger:
+    """
+    Diagnostic logger for step-by-step backtest analysis.
+    
+    Provides detailed logging of each trading step including:
+    - Model actions and target weights
+    - Equity, cash, and position state
+    - Margin constraint applications
+    - Trade executions
+    """
+    
+    def __init__(self, verbose: bool = True, debug: bool = False):
+        """
+        Initialize logger.
+        
+        Args:
+            verbose: Print periodic progress updates
+            debug: Print detailed step-by-step logs
+        """
+        self.verbose = verbose
+        self.debug = debug
+        self.step_logs: List[Dict[str, Any]] = []
+        self.constraint_hits = 0
+        self.total_steps = 0
+    
+    def log_step(
+        self,
+        step: int,
+        date: datetime,
+        raw_action: float,
+        target_weight: float,
+        equity: float,
+        cash: float,
+        current_shares: float,
+        target_shares: float,
+        constrained_shares: Optional[float] = None,
+        current_price: float = 0.0,
+    ) -> None:
+        """Log a single backtest step."""
+        self.total_steps += 1
+        
+        was_constrained = (
+            constrained_shares is not None and 
+            abs(constrained_shares - target_shares) > 1e-6
+        )
+        
+        if was_constrained:
+            self.constraint_hits += 1
+        
+        log_entry = {
+            'step': step,
+            'date': date,
+            'raw_action': raw_action,
+            'target_weight': target_weight,
+            'equity': equity,
+            'cash': cash,
+            'current_shares': current_shares,
+            'target_shares': target_shares,
+            'constrained_shares': constrained_shares,
+            'was_constrained': was_constrained,
+            'price': current_price,
+        }
+        self.step_logs.append(log_entry)
+        
+        if self.debug:
+            self._print_step(log_entry)
+    
+    def _print_step(self, log: Dict[str, Any]) -> None:
+        """Print detailed step information."""
+        print(f"\n{'='*70}")
+        print(f"STEP {log['step']} | {log['date']}")
+        print(f"{'='*70}")
+        print(f"  Raw Action:     {log['raw_action']:.6f}")
+        print(f"  Target Weight:  {log['target_weight']:.4f} ({log['target_weight']*100:.1f}%)")
+        print(f"  Price:          ${log['price']:.2f}")
+        print(f"  {'-'*30}")
+        print(f"  Equity:         ${log['equity']:,.2f}")
+        print(f"  Cash:           ${log['cash']:,.2f}")
+        print(f"  Current Shares: {log['current_shares']:.2f}")
+        print(f"  {'-'*30}")
+        print(f"  Target Shares:  {log['target_shares']:.2f}")
+        
+        if log['was_constrained']:
+            print(f"  [!] CONSTRAINED: {log['target_shares']:.2f} -> {log['constrained_shares']:.2f}")
+            reduction_pct = (1 - log['constrained_shares'] / log['target_shares']) * 100 if log['target_shares'] != 0 else 0
+            print(f"      Reduction:  {reduction_pct:.1f}%")
+    
+    def log_trade(self, trade_type: str, shares: float, price: float, 
+                  costs: float, reason: str) -> None:
+        """Log trade execution."""
+        if self.debug:
+            print(f"  [TRADE] {trade_type} {abs(shares):.2f} shares @ ${price:.2f}")
+            print(f"          Costs: ${costs:.2f} | Reason: {reason}")
+    
+    def log_bankruptcy(self, step: int, date: datetime, equity: float) -> None:
+        """Log bankruptcy event."""
+        print(f"\n{'!'*70}")
+        print(f"!! BANKRUPTCY at step {step} ({date})")
+        print(f"!! Equity: ${equity:,.2f}")
+        print(f"{'!'*70}\n")
+    
+    def summary(self) -> str:
+        """Generate logging summary."""
+        lines = [
+            "\n" + "="*70,
+            "BACKTEST DIAGNOSTIC SUMMARY",
+            "="*70,
+            f"Total Steps: {self.total_steps}",
+            f"Margin Constraint Hits: {self.constraint_hits}",
+            f"Constraint Rate: {self.constraint_hits/max(1, self.total_steps)*100:.1f}%",
+            "="*70,
+        ]
+        return "\n".join(lines)
 
 
 @dataclass
@@ -198,6 +315,8 @@ class BacktestEngine:
         config: Optional[SwingTradingConfig] = None,
         initial_capital: float = 100_000.0,
         transaction_cost: float = 0.001,  # 10 bps
+        debug: bool = False,
+        enforce_margin: bool = True,
     ):
         """
         Initialize backtest engine.
@@ -208,18 +327,26 @@ class BacktestEngine:
             config: Environment configuration
             initial_capital: Starting capital
             transaction_cost: Transaction cost rate (fees + slippage)
+            debug: Enable detailed step-by-step logging
+            enforce_margin: Enforce margin constraints (like training env)
         """
         self.model_path = model_path
         self.data = data.copy()
         self.config = config or SwingTradingConfig()
         self.initial_capital = initial_capital
         self.transaction_cost = transaction_cost
+        self.debug = debug
+        self.enforce_margin = enforce_margin
         
         # Load model
         self.model = self._load_model()
         
         # Create environment
         self.env = self._create_environment()
+        
+        # Initialize margin model (CRITICAL: matches training constraints)
+        self.margin_model = MarginModel(self.config.margin)
+        self.allow_short = self.config.trading.allow_short
         
         # State tracking
         self.cash = initial_capital
@@ -229,6 +356,9 @@ class BacktestEngine:
         self.equity_history: List[float] = []
         self.position_history: List[float] = []
         self.dates: List[datetime] = []
+        
+        # Diagnostic logger
+        self.logger = BacktestLogger(verbose=True, debug=debug)
         
     def _load_model(self) -> PPO:
         """Load trained PPO model with VecNormalize."""
@@ -278,6 +408,8 @@ class BacktestEngine:
             print(f"Initial Capital: ${self.initial_capital:,.2f}")
             print(f"Data Period: {self.data.index[0]} to {self.data.index[-1]}")
             print(f"Total Bars: {len(self.data)}")
+            print(f"Margin Enforcement: {'ENABLED' if self.enforce_margin else 'DISABLED'}")
+            print(f"Debug Mode: {'ON' if self.debug else 'OFF'}")
             print("="*70 + "\n")
         
         # Reset environment
@@ -289,6 +421,7 @@ class BacktestEngine:
         while not done:
             # Get model prediction
             action, _ = self.model.predict(obs, deterministic=True)
+            raw_action = float(action[0]) if isinstance(action, np.ndarray) else float(action)
             
             # Execute action in environment
             obs, reward, done, info = self.env.step(action)
@@ -316,8 +449,11 @@ class BacktestEngine:
                 current_price = float(self.data['close'].iloc[current_data_idx])
             
             # Get target weight from action
-            target_weight = float(action[0]) if isinstance(action, np.ndarray) else float(action)
-            target_weight = np.clip(target_weight, -1.0, 1.0)
+            target_weight = np.clip(raw_action, -1.0, 1.0)
+            
+            # Enforce short constraint if not allowed
+            if not self.allow_short and target_weight < 0:
+                target_weight = 0.0
             
             # 1. Mark-to-Market: Update Equity based on NEW price (before trading)
             # This ensures we size positions based on actual current wealth
@@ -326,20 +462,51 @@ class BacktestEngine:
             
             # Check for bankruptcy
             if self.equity <= 0:
-                print(f"BANKRUPTCY at step {step} ({current_date}): Equity=${self.equity:.2f}")
+                self.logger.log_bankruptcy(step, current_date, self.equity)
                 # Close position at current price
                 if not self.position.is_flat():
                     self._execute_trade(0.0, current_price, current_date, "Bankruptcy")
                 break
             
-            # Calculate target shares
-            # Enforce margin requirement (100% margin for simplicity)
+            # Calculate target shares (unconstrained)
             target_shares = (target_weight * self.equity) / current_price
             
-            # Execute trade if position changes
-            if abs(target_shares - self.position.shares) > 1e-6:
-                self._execute_trade(
+            # =====================================================================
+            # CRITICAL FIX: Enforce margin constraints to match training environment
+            # =====================================================================
+            constrained_shares = target_shares
+            if self.enforce_margin:
+                constrained_shares = self.margin_model.clamp_target_shares(
+                    current_cash=self.cash,
+                    current_shares=self.position.shares,
+                    price=current_price,
                     target_shares=target_shares,
+                    fee_rate=self.transaction_cost / 2,
+                    slippage_rate=self.transaction_cost / 2,
+                    allow_short=self.allow_short,
+                )
+            
+            # Log this step
+            self.logger.log_step(
+                step=step,
+                date=current_date,
+                raw_action=raw_action,
+                target_weight=target_weight,
+                equity=self.equity,
+                cash=self.cash,
+                current_shares=self.position.shares,
+                target_shares=target_shares,
+                constrained_shares=constrained_shares if self.enforce_margin else None,
+                current_price=current_price,
+            )
+            
+            # Use constrained shares for execution
+            final_target_shares = constrained_shares if self.enforce_margin else target_shares
+            
+            # Execute trade if position changes
+            if abs(final_target_shares - self.position.shares) > 1e-6:
+                self._execute_trade(
+                    target_shares=final_target_shares,
                     current_price=current_price,
                     current_date=current_date,
                     reason=f"Model signal: weight={target_weight:.3f}"
@@ -348,6 +515,10 @@ class BacktestEngine:
             # Update equity again to account for transaction costs paid
             position_value = self.position.shares * current_price
             self.equity = self.cash + position_value
+            
+            # Validate no negative cash (additional safety check)
+            if self.cash < -1e-6 and self.enforce_margin:
+                print(f"⚠️  WARNING: Negative cash ${self.cash:.2f} at step {step}")
             
             # Record history
             self.equity_history.append(self.equity)
@@ -388,6 +559,7 @@ class BacktestEngine:
         
         if verbose:
             print("\n" + result.summary())
+            print(self.logger.summary())
         
         return result
     
@@ -398,18 +570,79 @@ class BacktestEngine:
         current_date: datetime,
         reason: str
     ) -> None:
-        """Execute a trade."""
+        """Execute a trade with cash constraint validation.
+        
+        CRITICAL: This method handles three scenarios:
+        1. Position flip (long->short or short->long): Delegate to recursive calls
+        2. Position close (target=0): Update cash and record trade
+        3. Position size change (same direction): Update cash and position
+        
+        The key insight is that position flips must be detected BEFORE updating
+        cash to prevent double-counting in recursive calls.
+        """
         shares_delta = target_shares - self.position.shares
         
         if abs(shares_delta) < 1e-6:
             return
         
-        # Calculate costs
+        # CRITICAL: Check for position flip FIRST, before any cash updates
+        # Position flip = sign change where both are non-zero
+        is_position_flip = (
+            not self.position.is_flat() and  # Have an existing position
+            abs(target_shares) > 1e-6 and    # Target is non-zero
+            np.sign(target_shares) != np.sign(self.position.shares)  # Direction change
+        )
+        
+        if is_position_flip:
+            # Handle flip by delegating to recursive calls - DO NOT update cash here
+            # First close the existing position (recursive call will update cash)
+            self._execute_trade(0.0, current_price, current_date, "Position flip")
+            # Then open new position (recursive call will update cash)
+            self._execute_trade(target_shares, current_price, current_date, reason)
+            return  # Exit - recursive calls handled everything
+        
+        # Calculate costs for THIS specific trade (not the full flip)
         traded_notional = abs(shares_delta) * current_price
         costs = traded_notional * self.transaction_cost
         
-        # Update cash
-        self.cash -= shares_delta * current_price + costs
+        # Calculate what cash would be after this trade
+        cash_after_trade = self.cash - shares_delta * current_price - costs
+        
+        # CRITICAL: Enforce cash-only constraint for opening/increasing long positions
+        # Only apply when:
+        # 1. We're buying (shares_delta > 0)
+        # 2. AND the resulting position would be long
+        # 3. AND we'd end up with negative cash
+        is_opening_or_increasing_long = (
+            shares_delta > 0 and  # Buying
+            target_shares > 0     # Will be long after
+        )
+        
+        if self.enforce_margin and is_opening_or_increasing_long and cash_after_trade < -1e-6:
+            # Calculate maximum affordable position
+            # Available cash = current cash * 0.99 (leave small buffer)
+            max_affordable_delta = max(0, (self.cash * 0.99) / (current_price * (1 + self.transaction_cost)))
+            max_affordable_target = self.position.shares + max_affordable_delta
+            
+            if self.debug:
+                print(f"  [CASH CLAMP] Can't afford {target_shares:.2f} shares (cash would be ${cash_after_trade:,.2f})")
+                print(f"               Available cash: ${self.cash:,.2f}")
+                print(f"               Clamping to {max_affordable_target:.2f} shares")
+            
+            # Recalculate with clamped value
+            target_shares = max_affordable_target
+            shares_delta = target_shares - self.position.shares
+            
+            # If after clamping, no meaningful trade to execute
+            if abs(shares_delta) < 1e-6:
+                return
+                
+            traded_notional = abs(shares_delta) * current_price
+            costs = traded_notional * self.transaction_cost
+            cash_after_trade = self.cash - shares_delta * current_price - costs
+        
+        # Update cash - this only happens for non-flip trades
+        self.cash = cash_after_trade
         
         # Handle position transitions
         if self.position.is_flat():
@@ -445,17 +678,10 @@ class BacktestEngine:
             # Reset position
             self.position = Position()
         else:
-            # Position flip or size change
-            if np.sign(target_shares) != np.sign(self.position.shares):
-                # Close old position first
-                self._execute_trade(0.0, current_price, current_date, "Position flip")
-                # Open new position
-                self._execute_trade(target_shares, current_price, current_date, reason)
-            else:
-                # Just size change, update entry price (average)
-                total_value = self.position.shares * self.position.entry_price + shares_delta * current_price
-                self.position.shares = target_shares
-                self.position.entry_price = total_value / target_shares if target_shares != 0 else 0.0
+            # Just size change (same direction), update entry price (average)
+            total_value = self.position.shares * self.position.entry_price + shares_delta * current_price
+            self.position.shares = target_shares
+            self.position.entry_price = total_value / target_shares if target_shares != 0 else 0.0
     
     def _calculate_metrics(self) -> Dict[str, float]:
         """Calculate comprehensive performance metrics."""
