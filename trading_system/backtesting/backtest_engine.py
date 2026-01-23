@@ -319,6 +319,19 @@ class BacktestEngine:
             target_weight = float(action[0]) if isinstance(action, np.ndarray) else float(action)
             target_weight = np.clip(target_weight, -1.0, 1.0)
             
+            # 1. Mark-to-Market: Update Equity based on NEW price (before trading)
+            # This ensures we size positions based on actual current wealth
+            position_value = self.position.shares * current_price
+            self.equity = self.cash + position_value
+            
+            # Check for bankruptcy
+            if self.equity <= 0:
+                print(f"BANKRUPTCY at step {step} ({current_date}): Equity=${self.equity:.2f}")
+                # Close position at current price
+                if not self.position.is_flat():
+                    self._execute_trade(0.0, current_price, current_date, "Bankruptcy")
+                break
+            
             # Calculate target shares
             # Enforce margin requirement (100% margin for simplicity)
             target_shares = (target_weight * self.equity) / current_price
@@ -332,10 +345,7 @@ class BacktestEngine:
                     reason=f"Model signal: weight={target_weight:.3f}"
                 )
             
-            # Update position P&L
-            self.position.update_pnl(current_price)
-            
-            # Update equity
+            # Update equity again to account for transaction costs paid
             position_value = self.position.shares * current_price
             self.equity = self.cash + position_value
             
