@@ -5,7 +5,7 @@
 #SBATCH --nodes=1                          # Number of nodes
 #SBATCH --ntasks=1                         # Number of tasks
 #SBATCH --cpus-per-task=8                  # CPU cores per task
-#SBATCH --gres=gpu:1                       # Number of GPUs (1 GPU)
+#SBATCH --gpus-per-node=1
 #SBATCH --output=/scratch/yuvraj17/stock_trading_logs/%x-%j.out    # Standard output
 #SBATCH --error=/scratch/yuvraj17/stock_trading_logs/%x-%j.err     # Standard error
 #SBATCH --mail-type=BEGIN,END,FAIL         # Email notifications
