@@ -39,6 +39,8 @@ echo "=========================================="
 
 # Load required modules
 echo "Loading modules..."
+# Load StdEnv first (required for CUDA on Compute Canada)
+module load StdEnv/2023
 module load python/3.10
 module load cuda/12.2
 
@@ -114,7 +116,7 @@ echo "=========================================="
 echo ""
 
 # Run training with all outputs logged
-python train_production_ppo.py \
+python -u train_production_ppo.py \
     --ticker $TICKER \
     --mode $MODE \
     --timesteps $TIMESTEPS \
