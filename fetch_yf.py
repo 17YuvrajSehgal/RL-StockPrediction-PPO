@@ -253,4 +253,4 @@ if __name__ == "__main__":
 # Example commands
 # -----------------------------
 # python fetch_yf.py --tickers AAPL MSFT --start 2020-01-01 --end 2025-12-23 --interval 1d --out data --group combined
-# python fetch_yf.py --tickers AAPL --start 2020-01-01 --end 2025-12-23 --interval 1d
+# python fetch_yf.py --tickers AAPL --start 2020-01-01 --end 2026-1-23 --interval 1d --out yf_data
