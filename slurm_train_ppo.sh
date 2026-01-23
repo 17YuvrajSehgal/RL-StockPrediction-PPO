@@ -7,8 +7,8 @@
 #SBATCH --cpus-per-task=8                  # CPU cores per task
 #SBATCH --gres=gpu:1                       # Number of GPUs (1 GPU)
 #SBATCH --mem=32G                          # Memory per node
-#SBATCH --output=/scratch/yuvraj17/StockTrading/logs/%x-%j.out    # Standard output
-#SBATCH --error=/scratch/yuvraj17/StockTrading/logs/%x-%j.err     # Standard error
+#SBATCH --output=/scratch/yuvraj17/stock_trading_logs/%x-%j.out    # Standard output
+#SBATCH --error=/scratch/yuvraj17/stock_trading_logs/%x-%j.err     # Standard error
 #SBATCH --mail-type=BEGIN,END,FAIL         # Email notifications
 #SBATCH --mail-user=ys19rk@brocku.ca       # Your email
 
@@ -27,7 +27,7 @@
 #
 # Monitor:
 #   squeue -u $USER
-#   tail -f /scratch/yuvraj17/StockTrading/logs/<job-name>-<job-id>.out
+#   tail -f /scratch/yuvraj17/stock_trading_logs/<job-name>-<job-id>.out
 ################################################################################
 
 # Print job information
@@ -52,11 +52,10 @@ echo ""
 
 # Set up environment
 echo "Setting up environment..."
-export SCRATCH_DIR=/scratch/yuvraj17/StockTrading
-export PROJECT_DIR=$SCRATCH_DIR/RL-StockPrediction-PPO
-export LOG_DIR=$SCRATCH_DIR/logs
-export MODEL_DIR=$SCRATCH_DIR/models
-export TENSORBOARD_DIR=$SCRATCH_DIR/tensorboard
+export PROJECT_DIR=/scratch/yuvraj17/RL-StockPrediction-PPO
+export LOG_DIR=/scratch/yuvraj17/stock_trading_logs
+export MODEL_DIR=/scratch/yuvraj17/stock_trading_logs/models
+export TENSORBOARD_DIR=/scratch/yuvraj17/stock_trading_logs/tensorboard
 
 # Create necessary directories
 mkdir -p $LOG_DIR
