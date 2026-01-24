@@ -374,7 +374,7 @@ class BacktestVisualizer:
         equity = self.result.equity_curve
         
         # Calculate monthly returns
-        monthly = equity.resample('M').last()
+        monthly = equity.resample('ME').last()
         monthly_returns = monthly.pct_change().dropna()
         
         # Pivot to year x month
