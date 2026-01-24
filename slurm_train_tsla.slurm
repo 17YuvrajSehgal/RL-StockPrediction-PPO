@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=ppo_tsla_trading       # Job name
 #SBATCH --account=def-naser2
-#SBATCH --time=02:00:00                    # Time limit (2 hours for full training)
+#SBATCH --time=01:30:00                    # Time limit
 #SBATCH --nodes=1                          # Number of nodes
 #SBATCH --ntasks=1                         # Number of tasks
 #SBATCH --cpus-per-task=8                  # CPU cores per task
