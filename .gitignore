@@ -9,3 +9,4 @@ models
 checkpoints
 stock_trading_logs
 reports
+__pycache__
