@@ -210,8 +210,18 @@ Examples:
         from swing_trading.config import EnvironmentConfig
         from dataclasses import replace
         
-        lookback = min(60, len(df) // 3)
-        episode_length = min(252, len(df) - lookback - 10)
+        # Account for ~50 rows lost during feature engineering (MA warmup)
+        # IMPORTANT: lookback MUST match training (default 60) for observation space compatibility
+        effective_rows = len(df) - 50
+        lookback = 60  # Must match training - don't change!
+        episode_length = min(252, max(20, effective_rows - lookback - 10))
+        
+        # Check if we have enough data
+        min_required = lookback + episode_length + 10
+        if effective_rows < min_required:
+            print(f"\n⚠️  Warning: Limited data ({len(df)} rows, ~{effective_rows} after features)")
+            print(f"   Backtest will run on {episode_length} trading days")
+            print(f"   For longer backtest, use earlier --start-date\n")
         
         env_cfg = replace(
             config.environment,
