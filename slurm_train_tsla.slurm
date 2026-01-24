@@ -4,7 +4,7 @@
 #SBATCH --time=01:30:00                    # Time limit
 #SBATCH --nodes=1                          # Number of nodes
 #SBATCH --ntasks=1                         # Number of tasks
-#SBATCH --cpus-per-task=8                  # CPU cores per task
+#SBATCH --cpus-per-task=1                  # CPU cores per task
 #SBATCH --gpus-per-node=1
 #SBATCH --output=/scratch/yuvraj17/stock_trading_logs/%x-%j.out    # Standard output
 #SBATCH --error=/scratch/yuvraj17/stock_trading_logs/%x-%j.err     # Standard error
