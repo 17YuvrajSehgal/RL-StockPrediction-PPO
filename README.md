@@ -100,10 +100,99 @@ RL-StockPrediction-PPO/
 ├── yf_data/                   # Downloaded market data
 ├── models/                    # Saved trained models
 ├── reports/                   # Backtest reports
+│
+├── daily_trading/             # [NEW] Daily retraining system
+│   ├── config.py              # Configuration dataclasses
+│   ├── trainer.py             # DailyTrainer (full/fine-tune)
+│   ├── signals.py             # SignalGenerator (BUY/SELL/HOLD)
+│   ├── walk_forward.py        # WalkForwardValidator
+│   └── utils.py               # Trading calendar, data loading
+│
+├── daily_pipeline.py          # [NEW] Daily trading CLI
+├── daily_models/              # [NEW] Date-versioned models
+├── signals/                   # [NEW] Generated trading signals
 └── slurm_train_ppo.slurm      # HPC cluster job script
 ```
 
 ---
+
+## Daily Trading System (NEW)
+
+### Overview
+
+Generate daily trading signals and validate strategies using walk-forward testing:
+
+```bash
+# Generate signal for next trading day
+python daily_pipeline.py signal --ticker AAPL
+
+# Run walk-forward validation (train day N, test day N+1)
+python daily_pipeline.py validate --ticker AAPL --days 30
+
+# Compare training modes
+python daily_pipeline.py compare --ticker AAPL --days 10
+```
+
+### Signal Generation
+
+```bash
+python daily_pipeline.py signal --ticker AAPL
+```
+
+Output:
+```
+============================================================
+TRADING SIGNAL: AAPL
+============================================================
+Signal Date:    2026-01-27 (next trading day)
+Generated:      2026-01-24 12:30:00
+------------------------------------------------------------
+Signal:         BUY
+Confidence:     72%
+Target Weight:  +65%
+Current Price:  $185.50
+------------------------------------------------------------
+Reasoning:      Model predicts strong bullish signal with 65% 
+                long target. Confidence: 72%.
+============================================================
+```
+
+### Walk-Forward Validation
+
+Test your strategy rigorously:
+
+```bash
+# Last 30 trading days
+python daily_pipeline.py validate --ticker AAPL --days 30 --mode fine_tune
+
+# Specific date range
+python daily_pipeline.py validate --ticker AAPL --start 2025-10-01 --end 2025-12-31
+```
+
+Output includes:
+- **Accuracy**: % of signals matching actual market direction
+- **Sharpe Ratio**: Risk-adjusted returns
+- **Strategy Return vs Buy-and-Hold**: Excess return
+
+### Training Modes
+
+| Mode | Speed | Use Case |
+|------|-------|----------|
+| `full` | 30-60 min | Weekly retraining, initial models |
+| `fine_tune` | 5-15 min | Daily updates, quick adaptation |
+
+### Adjustable Training Windows
+
+```bash
+# Volatile market - short 6-month window
+python daily_pipeline.py validate --ticker AAPL --days 30 --window 126
+
+# Stable market - long 3-year window  
+python daily_pipeline.py validate --ticker AAPL --days 30 --window 756
+```
+
+> See [daily_trading/README.md](daily_trading/README.md) for full documentation.
+
 
 ## Data Pipeline
 

@@ -3,7 +3,7 @@
 saves
 runs
 logs
-data
+yf_data/data
 yf_data
 models
 checkpoints
