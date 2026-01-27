@@ -63,7 +63,8 @@ def train_model_for_window(df_train: pd.DataFrame, experiment_name: str, timeste
     """Train a model on the specific window."""
     
     # Config
-    env_config = SwingTradingConfig.conservative()
+    # [MODIFIED] Use Aggressive config to enable Shorting and faster reactions
+    env_config = SwingTradingConfig.aggressive()
     
     # Adjust lookback/episode length for smaller windows if needed
     effective_len = len(df_train)
@@ -79,6 +80,10 @@ def train_model_for_window(df_train: pd.DataFrame, experiment_name: str, timeste
     env = DummyVecEnv([lambda: train_env])
     env = VecNormalize(env, norm_obs=True, norm_reward=True, clip_obs=10.0, clip_reward=10.0)
     
+    # [VERIFICATION] Print features to confirm we are feeding the right data
+    print(f"   [Feature Check] Active Features ({len(train_env.feature_cols)}): {train_env.feature_cols}")
+    print(f"   [Data Check] Training Data Shape: {train_env.features.shape}")
+    
     # Training Config
     training_config = TrainingConfig.production(experiment_name)
     # Reduce epochs/steps for speed in walk-forward if desired, but keep robust
@@ -92,8 +97,8 @@ def train_model_for_window(df_train: pd.DataFrame, experiment_name: str, timeste
         batch_size=64,
         n_epochs=10,
         gamma=0.99,
-        verbose=0,
-        tensorboard_log=None # Disable TB for individual VF steps to save space
+        verbose=1,
+        tensorboard_log=f"runs/{experiment_name}" # [MODIFIED] Enable TB logging
     )
     
     

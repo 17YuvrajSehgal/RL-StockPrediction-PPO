@@ -105,12 +105,28 @@ class FeatureEngineer:
         v_std = v.rolling(vol_z_window).std()
         df[f'vol_z{vol_z_window}'] = (v - v_mean) / (v_std + 1e-12)
         
+        # [NEW] Advanced Technical Indicators
+        # RSI
+        df['rsi'] = self.compute_rsi(df['close'], window=14) / 100.0  # Normalize to 0-1
+        
+        # Bollinger Bands (Width and Position)
+        bb_upper, bb_mid, bb_lower = self.compute_bollinger_bands(df['close'], window=20, num_std=2.0)
+        df['bb_width'] = (bb_upper - bb_lower) / bb_mid
+        df['bb_pos'] = (df['close'] - bb_lower) / (bb_upper - bb_lower)
+        
+        # MACD (Normalized)
+        macd_line, signal_line, _ = self.compute_macd(df['close'])
+        df['macd_diff'] = macd_line - signal_line
+        # Normalize MACD by price to make it stationary-ish
+        df['macd_norm'] = df['macd_diff'] / df['close']
+
         # Select feature columns (exclude raw OHLCV and intermediate MAs)
         feature_cols = [
             'ret_1', 'range_pct', 'oc_ret',
             *[f'ma{w}_dist' for w in ma_windows],
             f'vol{vol_window}',
             f'vol_z{vol_z_window}',
+            'rsi', 'bb_width', 'bb_pos', 'macd_norm',
         ]
         
         features = df[feature_cols].dropna()
