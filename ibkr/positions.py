@@ -172,10 +172,10 @@ class PositionManager:
             symbol=symbol,
             quantity=int(position.position),
             avg_cost=position.avgCost,
-            market_price=position.marketPrice if position.marketPrice else position.avgCost,
-            market_value=position.marketValue if position.marketValue else 0.0,
-            unrealized_pnl=position.unrealizedPNL if position.unrealizedPNL else 0.0,
-            realized_pnl=position.realizedPNL if position.realizedPNL else 0.0,
+            market_price=position.avgCost,  # Position object doesn't have marketPrice
+            market_value=position.position * position.avgCost,
+            unrealized_pnl=0.0,  # Will be updated by portfolio updates
+            realized_pnl=0.0,
             account=position.account,
         )
         
@@ -223,10 +223,10 @@ class PositionManager:
                 symbol=symbol,
                 quantity=int(ib_pos.position),
                 avg_cost=ib_pos.avgCost,
-                market_price=ib_pos.marketPrice if ib_pos.marketPrice else ib_pos.avgCost,
-                market_value=ib_pos.marketValue if ib_pos.marketValue else 0.0,
-                unrealized_pnl=ib_pos.unrealizedPNL if ib_pos.unrealizedPNL else 0.0,
-                realized_pnl=ib_pos.realizedPNL if ib_pos.realizedPNL else 0.0,
+                market_price=ib_pos.avgCost,  # Position object doesn't have marketPrice
+                market_value=ib_pos.position * ib_pos.avgCost,
+                unrealized_pnl=0.0,  # Will be updated by portfolio updates
+                realized_pnl=0.0,
                 account=ib_pos.account,
             )
             

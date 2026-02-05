@@ -7,6 +7,7 @@ order placement, status tracking, and cancellation for various order types.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -346,7 +347,7 @@ class OrderManager:
             trade = self.ib.placeOrder(contract, order)
             
             # Wait for order to be acknowledged
-            await self.ib.sleep(0.1)  # Small delay for order acknowledgment
+            await asyncio.sleep(0.1)  # Small delay for order acknowledgment
             
             # Create order info
             order_info = OrderInfo(
@@ -422,7 +423,7 @@ class OrderManager:
             trade = self.ib.placeOrder(contract, order)
             
             # Wait for order to be acknowledged
-            await self.ib.sleep(0.1)
+            await asyncio.sleep(0.1)
             
             # Create order info
             order_info = OrderInfo(
@@ -499,7 +500,7 @@ class OrderManager:
             trade = self.ib.placeOrder(contract, order)
             
             # Wait for order to be acknowledged
-            await self.ib.sleep(0.1)
+            await asyncio.sleep(0.1)
             
             # Create order info
             order_info = OrderInfo(
