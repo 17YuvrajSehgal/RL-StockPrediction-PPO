@@ -20,8 +20,11 @@ from pathlib import Path
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 from stable_baselines3 import PPO
-from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
+from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecNormalize
+from stable_baselines3.common.monitor import Monitor
+from stable_baselines3.common.utils import set_random_seed
 from dataclasses import replace
+import os
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent))
@@ -59,6 +62,23 @@ def load_data(ticker: str, data_dir: str = "yf_data") -> pd.DataFrame:
     
     return df
 
+def make_env(df_train, env_config, rank, seed=0):
+    """
+    Utility function for multiprocessed env.
+    
+    :param df_train: (pd.DataFrame)
+    :param env_config: (SwingTradingConfig)
+    :param rank: (int) index of the subprocess
+    :param seed: (int) the indicial seed for RNG
+    """
+    def _init():
+        env = SwingTradingEnv(df_train, env_config)
+        env = Monitor(env) # Wrap in Monitor to track episode rewards/lengths
+        env.reset(seed=seed + rank)
+        return env
+    set_random_seed(seed)
+    return _init
+
 def train_model_for_window(df_train: pd.DataFrame, experiment_name: str, timesteps: int = 100000) -> str:
     """Train a model on the specific window."""
     
@@ -74,31 +94,48 @@ def train_model_for_window(df_train: pd.DataFrame, experiment_name: str, timeste
     env_cfg = replace(env_config.environment, lookback=lookback, episode_length=episode_length)
     env_config = replace(env_config, environment=env_cfg)
     
-    train_env = SwingTradingEnv(df_train, env_config)
+    # [OPTIMIZATION] Parallel Environments for GPU Saturation
+    # Determine CPU cores (leave 2 for system)
+    print(f"Total CPU:{os.cpu_count()}")
+    num_cpu = max(1, os.cpu_count() - 2)
+    # Cap at 8 to avoid diminishing returns/overhead on small data
+    num_cpu = min(8, num_cpu) 
+    
+    print(f"   [Performance] Launching {num_cpu} parallel environments...")
+    
+    # Create parallel envs
+    env = SubprocVecEnv([make_env(df_train, env_config, i) for i in range(num_cpu)])
     
     # Vectorize and Normalize
-    env = DummyVecEnv([lambda: train_env])
     env = VecNormalize(env, norm_obs=True, norm_reward=True, clip_obs=10.0, clip_reward=10.0)
     
-    # [VERIFICATION] Print features to confirm we are feeding the right data
-    print(f"   [Feature Check] Active Features ({len(train_env.feature_cols)}): {train_env.feature_cols}")
-    print(f"   [Data Check] Training Data Shape: {train_env.features.shape}")
+    # [VERIFICATION] Print features (get from first env)
+    # We can't access env.envs[0] in SubprocVecEnv easily without calling a method.
+    # So we just print generic confirmation.
+    print(f"   [Feature Check] Parallel Training Enabled on {num_cpu} CPUs.")
     
     # Training Config
     training_config = TrainingConfig.production(experiment_name)
-    # Reduce epochs/steps for speed in walk-forward if desired, but keep robust
-    # Using defaults: 100k timesteps passed as arg
+    
+    # [OPTIMIZATION] Batch Size Scaling for GPU
+    # If we have 8 envs, and we want updates every 2048 steps per env:
+    # Total buffer = 8 * 2048 = 16,384 steps
+    # We can use a large batch size like 2048 or 4096 for GPU.
+    
+    n_steps = 2048
+    batch_size = 2048 # Increased from 64 for GPU speedup
     
     model = PPO(
         "MlpPolicy",
         env,
-        learning_rate=1e-4,
-        n_steps=2048,
-        batch_size=64,
+        learning_rate=3e-4, # Slightly higher LR for larger batch
+        n_steps=n_steps, 
+        batch_size=batch_size,
         n_epochs=10,
         gamma=0.99,
         verbose=1,
-        tensorboard_log=f"runs/{experiment_name}" # [MODIFIED] Enable TB logging
+        device='cuda', # [CRITICAL] Force GPU
+        tensorboard_log=f"runs/{experiment_name}"
     )
     
     
@@ -271,24 +308,32 @@ def main():
     print("🏁 WALK-FORWARD COMPLETE")
     print("="*80)
     
+    # Ensure reports directory exists
+    Path("reports").mkdir(parents=True, exist_ok=True)
+    
+    # Save CSV first (safest)
+    if results:
+        df_res = pd.DataFrame(results)
+        df_res.to_csv(f"reports/{args.ticker}_walk_forward_segments.csv")
+        print(f"Results saved to reports/{args.ticker}_walk_forward_segments.csv")
+    
     if master_equity_curve:
         final_return = (master_equity - 100000) / 100000
         print(f"Final Equity: ${master_equity:,.2f}")
         print(f"Total Return: {final_return:.2%}")
         
         # Plot
-        plt.figure(figsize=(12, 6))
-        plt.plot(master_dates, master_equity_curve)
-        plt.title(f"Walk-Forward Equity Curve: {args.ticker}")
-        plt.xlabel("Date")
-        plt.ylabel("Equity ($)")
-        plt.grid(True, alpha=0.3)
-        plt.savefig(f"reports/{args.ticker}_walk_forward_equity.png")
-        print(f"Chart saved to reports/{args.ticker}_walk_forward_equity.png")
-    
-    # Save CSV
-    df_res = pd.DataFrame(results)
-    df_res.to_csv(f"reports/{args.ticker}_walk_forward_segments.csv")
+        try:
+            plt.figure(figsize=(12, 6))
+            plt.plot(master_dates, master_equity_curve)
+            plt.title(f"Walk-Forward Equity Curve: {args.ticker}")
+            plt.xlabel("Date")
+            plt.ylabel("Equity ($)")
+            plt.grid(True, alpha=0.3)
+            plt.savefig(f"reports/{args.ticker}_walk_forward_equity.png")
+            print(f"Chart saved to reports/{args.ticker}_walk_forward_equity.png")
+        except Exception as e:
+            print(f"⚠️  Could not save chart: {e}")
 
 if __name__ == "__main__":
     main()
