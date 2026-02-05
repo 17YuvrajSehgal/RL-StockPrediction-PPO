@@ -307,6 +307,7 @@ class OrderManager:
         symbol: str,
         quantity: int,
         action: str | OrderAction,
+        outside_rth: bool = False,
     ) -> OrderInfo:
         """
         Place a market order.
@@ -317,6 +318,7 @@ class OrderManager:
             symbol: Stock ticker symbol
             quantity: Number of shares (positive integer)
             action: "BUY" or "SELL"
+            outside_rth: Allow trading outside regular trading hours (after-hours)
         
         Returns:
             OrderInfo with order details
@@ -327,6 +329,9 @@ class OrderManager:
         Example:
             >>> order = await order_mgr.place_market_order("AAPL", 100, "BUY")
             >>> print(f"Order ID: {order.order_id}")
+            
+            >>> # After-hours trading
+            >>> order = await order_mgr.place_market_order("AAPL", 100, "BUY", outside_rth=True)
         """
         # Validate inputs
         if quantity <= 0:
@@ -339,8 +344,9 @@ class OrderManager:
         
         # Create market order
         order = MarketOrder(action.value, quantity)
+        order.outsideRth = outside_rth  # Enable after-hours trading if requested
         
-        logger.info(f"Placing market order: {action} {quantity} {symbol}")
+        logger.info(f"Placing market order: {action} {quantity} {symbol} (outsideRth={outside_rth})")
         
         try:
             # Place order
@@ -377,6 +383,7 @@ class OrderManager:
         quantity: int,
         action: str | OrderAction,
         limit_price: float,
+        outside_rth: bool = False,
     ) -> OrderInfo:
         """
         Place a limit order.
@@ -388,6 +395,7 @@ class OrderManager:
             quantity: Number of shares (positive integer)
             action: "BUY" or "SELL"
             limit_price: Maximum price for BUY, minimum price for SELL
+            outside_rth: Allow trading outside regular trading hours
         
         Returns:
             OrderInfo with order details
@@ -413,6 +421,7 @@ class OrderManager:
         
         # Create limit order
         order = LimitOrder(action.value, quantity, limit_price)
+        order.outsideRth = outside_rth
         
         logger.info(
             f"Placing limit order: {action} {quantity} {symbol} @ ${limit_price:.2f}"
@@ -454,6 +463,7 @@ class OrderManager:
         quantity: int,
         action: str | OrderAction,
         stop_price: float,
+        outside_rth: bool = False,
     ) -> OrderInfo:
         """
         Place a stop order.
@@ -465,6 +475,7 @@ class OrderManager:
             quantity: Number of shares (positive integer)
             action: "BUY" or "SELL"
             stop_price: Trigger price for the order
+            outside_rth: Allow trading outside regular trading hours
         
         Returns:
             OrderInfo with order details
@@ -490,6 +501,7 @@ class OrderManager:
         
         # Create stop order
         order = StopOrder(action.value, quantity, stop_price)
+        order.outsideRth = outside_rth
         
         logger.info(
             f"Placing stop order: {action} {quantity} {symbol} @ ${stop_price:.2f}"
@@ -524,6 +536,105 @@ class OrderManager:
             error_msg = f"Failed to place stop order: {e}"
             logger.error(error_msg)
             raise IBKROrderError(error_msg) from e
+    
+    async def open_long_position(
+        self,
+        symbol: str,
+        quantity: int,
+    ) -> OrderInfo:
+        """
+        Open a long position (buy shares).
+        
+        Convenience method for opening a long position with a market order.
+        
+        Args:
+            symbol: Stock ticker symbol
+            quantity: Number of shares to buy
+        
+        Returns:
+            OrderInfo with order details
+        
+        Example:
+            >>> order = await order_mgr.open_long_position("AAPL", 100)
+            >>> print(f"Opened long position: {order.order_id}")
+        """
+        return await self.place_market_order(symbol, quantity, OrderAction.BUY)
+    
+    async def close_long_position(
+        self,
+        symbol: str,
+        quantity: int,
+    ) -> OrderInfo:
+        """
+        Close a long position (sell shares).
+        
+        Convenience method for closing a long position with a market order.
+        
+        Args:
+            symbol: Stock ticker symbol
+            quantity: Number of shares to sell
+        
+        Returns:
+            OrderInfo with order details
+        
+        Example:
+            >>> order = await order_mgr.close_long_position("AAPL", 100)
+            >>> print(f"Closed long position: {order.order_id}")
+        """
+        return await self.place_market_order(symbol, quantity, OrderAction.SELL)
+    
+    async def open_short_position(
+        self,
+        symbol: str,
+        quantity: int,
+    ) -> OrderInfo:
+        """
+        Open a short position (sell shares you don't own).
+        
+        Convenience method for opening a short position with a market order.
+        This sells shares you don't currently own, betting the price will decrease.
+        
+        Args:
+            symbol: Stock ticker symbol
+            quantity: Number of shares to short
+        
+        Returns:
+            OrderInfo with order details
+        
+        Example:
+            >>> order = await order_mgr.open_short_position("AAPL", 100)
+            >>> print(f"Opened short position: {order.order_id}")
+        
+        Note:
+            Short selling requires margin account and may have restrictions.
+            Check with your broker for short selling requirements.
+        """
+        return await self.place_market_order(symbol, quantity, OrderAction.SELL)
+    
+    async def close_short_position(
+        self,
+        symbol: str,
+        quantity: int,
+    ) -> OrderInfo:
+        """
+        Close a short position (buy back shares).
+        
+        Convenience method for closing a short position with a market order.
+        This buys back shares to close your short position.
+        
+        Args:
+            symbol: Stock ticker symbol
+            quantity: Number of shares to buy back
+        
+        Returns:
+            OrderInfo with order details
+        
+        Example:
+            >>> order = await order_mgr.close_short_position("AAPL", 100)
+            >>> print(f"Closed short position: {order.order_id}")
+        """
+        return await self.place_market_order(symbol, quantity, OrderAction.BUY)
+
     
     async def cancel_order(self, order_id: int) -> bool:
         """
